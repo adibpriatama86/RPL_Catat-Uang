@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
 import 'package:prototype_catat_uang/screens/transaction_screen.dart';
 import 'package:prototype_catat_uang/screens/stats_screen.dart';
 import 'package:prototype_catat_uang/screens/account_screen.dart';
@@ -13,6 +15,8 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
+
+  // Key buat refresh transaksi setelah insert
   final GlobalKey<TransactionPageState> _transactionKey = GlobalKey();
 
   void _onItemTapped(int index) {
@@ -39,16 +43,20 @@ class _MainScreenState extends State<MainScreen> {
         },
       ),
 
-      // === LOGIC UMPETIN TOMBOL (+) ===
-      // Kalau lagi di halaman Saldo (Index 2), tombolnya NULL (ilang).
-      // Kalau enggak, baru munculin FloatingActionButton.
-      floatingActionButton: _selectedIndex == 2 
-          ? null 
+      // =========================
+      // FLOATING ACTION BUTTON
+      // =========================
+      // Di halaman Saldo (index 2) → FAB disembunyiin
+      floatingActionButton: _selectedIndex == 2
+          ? null
           : FloatingActionButton(
               onPressed: () {
+                HapticFeedback.selectionClick();
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const InsertTransactionScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const InsertTransactionScreen(),
+                  ),
                 ).then((value) {
                   if (value == true) {
                     _transactionKey.currentState?.refreshData();
@@ -59,29 +67,41 @@ class _MainScreenState extends State<MainScreen> {
               shape: const CircleBorder(),
               child: const Icon(Icons.add, color: Colors.white),
             ),
-      
+
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
+      // =========================
+      // BOTTOM NAVIGATION
+      // =========================
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: _onItemTapped,
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        onDestinationSelected: (index) {
+          HapticFeedback.lightImpact(); // 🔔 getar halus pas ganti tab
+          _onItemTapped(index);
+        },
+
+        // ❌ JANGAN set backgroundColor
+        // biarin ikut Theme dari main.dart
+        // backgroundColor: Colors.white,
+
         indicatorColor: const Color(0xFFFF6B6B).withOpacity(0.15),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long, color: Color(0xFFFF6B6B)),
+            selectedIcon:
+                Icon(Icons.receipt_long, color: Color(0xFFFF6B6B)),
             label: 'Transaksi',
           ),
           NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart, color: Color(0xFFFF6B6B)),
+            selectedIcon:
+                Icon(Icons.bar_chart, color: Color(0xFFFF6B6B)),
             label: 'Statistik',
           ),
           NavigationDestination(
             icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet, color: Color(0xFFFF6B6B)),
+            selectedIcon: Icon(Icons.account_balance_wallet,
+                color: Color(0xFFFF6B6B)),
             label: 'Saldo',
           ),
         ],

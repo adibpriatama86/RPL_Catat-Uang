@@ -1,7 +1,10 @@
-import 'package:prototype_catat_uang/database/database_helper.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:lottie/lottie.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:prototype_catat_uang/database/database_helper.dart';
+import 'package:prototype_catat_uang/widgets/custom_switch.dart'; // Import CustomSwitch
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key});
@@ -12,12 +15,14 @@ class StatsScreen extends StatefulWidget {
 
 class _StatsScreenState extends State<StatsScreen> {
   DateTime _focusedDate = DateTime.now();
+
   Map<String, int> _categoryData = {};
   int _totalExpense = 0;
   int _totalIncome = 0;
+
   bool _isLoading = true;
-  int _touchedIndex = -1; 
-  String _chartType = 'Expense'; 
+  int _touchedIndex = -1;
+  String _chartType = 'Expense';
 
   final List<Color> _colors = [
     const Color(0xFFFF6B6B),
@@ -39,23 +44,24 @@ class _StatsScreenState extends State<StatsScreen> {
     setState(() {
       _focusedDate = DateTime(_focusedDate.year, _focusedDate.month + offset);
       _isLoading = true;
-      _touchedIndex = -1; 
+      _touchedIndex = -1;
     });
     _loadData();
   }
 
-  void _loadData() async {
+  Future<void> _loadData() async {
     final data = await DatabaseHelper().getTransactions();
+
+    final currentMonth = DateFormat('yyyy-MM').format(_focusedDate);
+
     Map<String, int> tempMap = {};
     int totalExp = 0;
     int totalInc = 0;
-    String startMonth = DateFormat('yyyy-MM').format(_focusedDate);
 
     for (var item in data) {
-      String date = item['date'];
-      if (date.startsWith(startMonth)) {
+      if (item['date'].toString().startsWith(currentMonth)) {
         int amount = item['amount'] as int;
-        
+
         if (item['type'] == 'Expense') {
           totalExp += amount;
         } else {
@@ -63,19 +69,19 @@ class _StatsScreenState extends State<StatsScreen> {
         }
 
         if (item['type'] == _chartType) {
-          String cat = item['category'];
-          if (tempMap.containsKey(cat)) tempMap[cat] = tempMap[cat]! + amount;
-          else tempMap[cat] = amount;
+          tempMap[item['category']] =
+              (tempMap[item['category']] ?? 0) + amount;
         }
       }
     }
-    
-    var sortedKeys = tempMap.keys.toList(growable: false)
-      ..sort((k1, k2) => tempMap[k2]!.compareTo(tempMap[k1]!));
-    Map<String, int> sortedMap = Map.fromIterable(sortedKeys, key: (k) => k, value: (k) => tempMap[k]!);
+
+    final sortedKeys = tempMap.keys.toList()
+      ..sort((a, b) => tempMap[b]!.compareTo(tempMap[a]!));
 
     setState(() {
-      _categoryData = sortedMap;
+      _categoryData = {
+        for (var k in sortedKeys) k: tempMap[k]!,
+      };
       _totalExpense = totalExp;
       _totalIncome = totalInc;
       _isLoading = false;
@@ -83,16 +89,32 @@ class _StatsScreenState extends State<StatsScreen> {
   }
 
   String formatRupiah(int amount) {
-    return NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(amount);
+    return NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    ).format(amount);
   }
+
+  // ===========================
+  // BUILD
+  // ===========================
 
   @override
   Widget build(BuildContext context) {
-    int currentTotalChart = _chartType == 'Expense' ? _totalExpense : _totalIncome;
-    Color currentColor = _chartType == 'Expense' ? Colors.redAccent : Colors.teal;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.grey[400]! : Colors.grey;
+    final cardColor = isDark ? Colors.grey[800]! : Colors.grey[100]!;
+
+    final currentTotal =
+        _chartType == 'Expense' ? _totalExpense : _totalIncome;
+    final currentColor =
+        _chartType == 'Expense' ? Colors.redAccent : Colors.teal;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
@@ -102,106 +124,201 @@ class _StatsScreenState extends State<StatsScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  IconButton(icon: const Icon(Icons.arrow_back_ios, size: 18, color: Colors.black87), onPressed: () => _changeMonth(-1)),
-                  Text(DateFormat('MMM yyyy').format(_focusedDate), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  IconButton(icon: const Icon(Icons.arrow_forward_ios, size: 18, color: Colors.black87), onPressed: () => _changeMonth(1)),
+                  IconButton(
+                    icon: Icon(Icons.arrow_back_ios,
+                        size: 18, color: textColor),
+                    onPressed: () => _changeMonth(-1),
+                  ),
+                  Text(
+                    DateFormat('MMMM yyyy', 'id_ID').format(_focusedDate),
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: textColor),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.arrow_forward_ios,
+                        size: 18, color: textColor),
+                    onPressed: () => _changeMonth(1),
+                  ),
                 ],
               ),
             ),
 
-            // TOGGLE SWITCH
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.grey.shade300)),
-              child: Row(children: [_buildTypeButton("Expense", Colors.redAccent), _buildTypeButton("Income", Colors.teal)]),
+            // === GANTI TOGGLE MANUAL DENGAN CUSTOM SWITCH ===
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: CustomSwitch(
+                currentType: _chartType,
+                onChanged: (val) {
+                  setState(() {
+                    _chartType = val;
+                    _touchedIndex = -1; // Reset chart highlight
+                  });
+                  _loadData(); // Reload data sesuai tipe baru
+                },
+              ),
             ),
+            // ===============================================
+
             const SizedBox(height: 10),
 
-            // CHART AREA
+            // CHART
             _isLoading
-                ? const Expanded(child: Center(child: CircularProgressIndicator()))
-                : currentTotalChart == 0
-                    ? Expanded(child: Center(child: Text("Belum ada data $_chartType bulan ini.", style: const TextStyle(color: Colors.grey))))
+                ? const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : currentTotal == 0
+                    ? Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Lottie.asset('assets/empty.json',
+                                  width: 200, height: 200),
+                              Text(
+                                "Belum ada data $_chartType",
+                                style: TextStyle(color: subTextColor),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
                     : SizedBox(
-                        // Tinggi container chart tetep 300, tapi radius chart di dalemnya kita kecilin
                         height: 300,
-                        child: Stack( 
+                        child: Stack(
                           alignment: Alignment.center,
                           children: [
                             PieChart(
                               PieChartData(
                                 pieTouchData: PieTouchData(
-                                  touchCallback: (FlTouchEvent event, pieTouchResponse) {
+                                  touchCallback:
+                                      (event, pieTouchResponse) {
                                     setState(() {
-                                      if (!event.isInterestedForInteractions || pieTouchResponse == null || pieTouchResponse.touchedSection == null) {
+                                      if (!event
+                                              .isInterestedForInteractions ||
+                                          pieTouchResponse == null ||
+                                          pieTouchResponse
+                                                  .touchedSection ==
+                                              null) {
                                         _touchedIndex = -1;
                                         return;
                                       }
-                                      _touchedIndex = pieTouchResponse.touchedSection!.touchedSectionIndex;
+                                      _touchedIndex = pieTouchResponse
+                                          .touchedSection!
+                                          .touchedSectionIndex;
                                     });
                                   },
                                 ),
                                 sectionsSpace: 2,
-                                // === DIET RADIUS ===
-                                // Lubang tengah dikecilin dikit (70 -> 60) biar imbang
-                                centerSpaceRadius: 60, 
-                                sections: _generateSections(currentTotalChart),
-                                borderData: FlBorderData(show: false),
+                                centerSpaceRadius: 60,
+                                sections:
+                                    _generateSections(currentTotal),
+                                borderData:
+                                    FlBorderData(show: false),
                               ),
                             ),
-                            
-                            // TEXT DETAIL
+
                             SizedBox(
                               width: 100,
                               child: FittedBox(
-                                fit: BoxFit.scaleDown,
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      _touchedIndex == -1 ? "Total $_chartType" : _categoryData.keys.elementAt(_touchedIndex),
-                                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                                      _touchedIndex == -1
+                                          ? "Total $_chartType"
+                                          : _categoryData.keys.elementAt(
+                                              _touchedIndex),
+                                      style: TextStyle(
+                                          fontSize: 14,
+                                          color: subTextColor),
                                     ),
                                     Text(
-                                      _touchedIndex == -1 
-                                          ? formatRupiah(currentTotalChart)
-                                          : formatRupiah(_categoryData.values.elementAt(_touchedIndex)),
-                                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: currentColor),
+                                      _touchedIndex == -1
+                                          ? formatRupiah(currentTotal)
+                                          : formatRupiah(
+                                              _categoryData.values
+                                                  .elementAt(
+                                                      _touchedIndex)),
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: currentColor,
+                                      ),
                                     ),
                                   ],
                                 ),
                               ),
-                            )
+                            ),
                           ],
                         ),
                       ),
-            
+
             const SizedBox(height: 20),
 
-            // LIST CATEGORY
+            // LIST
             Expanded(
               child: ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: _categoryData.length,
                 itemBuilder: (context, index) {
-                  String category = _categoryData.keys.elementAt(index);
-                  int amount = _categoryData[category]!;
-                  double percentage = (amount / currentTotalChart) * 100;
-                  Color itemColor = _colors[index % _colors.length];
-                  bool isSelected = _touchedIndex == index; 
+                  final category =
+                      _categoryData.keys.elementAt(index);
+                  final amount = _categoryData[category]!;
+                  final percent =
+                      (amount / currentTotal) * 100;
+                  final itemColor =
+                      _colors[index % _colors.length];
+                  final isSelected = _touchedIndex == index;
 
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: EdgeInsets.all(isSelected ? 10 : 0),
-                    decoration: BoxDecoration(color: isSelected ? Colors.grey[100] : Colors.transparent, borderRadius: BorderRadius.circular(10), border: isSelected ? Border.all(color: Colors.grey.shade300) : null),
+                    decoration: BoxDecoration(
+                      color:
+                          isSelected ? cardColor : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                      border: isSelected
+                          ? Border.all(color: Colors.grey.shade300)
+                          : null,
+                    ),
                     child: Row(
                       children: [
-                        Container(width: 50, padding: const EdgeInsets.symmetric(vertical: 6), decoration: BoxDecoration(color: itemColor, borderRadius: BorderRadius.circular(8)), alignment: Alignment.center, child: Text("${percentage.toStringAsFixed(0)}%", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12))),
+                        Container(
+                          width: 50,
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 6),
+                          decoration: BoxDecoration(
+                            color: itemColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            "${percent.toStringAsFixed(0)}%",
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                fontSize: 12),
+                          ),
+                        ),
                         const SizedBox(width: 12),
-                        Expanded(child: Text(category, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87))),
-                        Text(formatRupiah(amount), style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.black87)), 
+                        Expanded(
+                          child: Text(
+                            category,
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: textColor),
+                          ),
+                        ),
+                        Text(
+                          formatRupiah(amount),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: textColor),
+                        ),
                       ],
                     ),
                   );
@@ -214,42 +331,23 @@ class _StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  Widget _buildTypeButton(String label, Color color) {
-    bool isSelected = _chartType == label;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _chartType = label;
-            _touchedIndex = -1; 
-          });
-          _loadData(); 
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(color: isSelected ? Colors.white : Colors.transparent, borderRadius: BorderRadius.circular(25), boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)] : []),
-          alignment: Alignment.center,
-          child: Text(label, style: TextStyle(color: isSelected ? color : Colors.grey, fontWeight: FontWeight.bold, fontSize: 14)),
-        ),
-      ),
-    );
-  }
+  // ===========================
+  // HELPERS
+  // ===========================
+
+  // _buildTypeButton SUDAH DIHAPUS karena diganti CustomSwitch
 
   List<PieChartSectionData> _generateSections(int total) {
     return List.generate(_categoryData.length, (index) {
-      int amount = _categoryData.values.elementAt(index);
+      final amount = _categoryData.values.elementAt(index);
       final isTouched = index == _touchedIndex;
-      
-      // === DIET RADIUS ===
-      // Normal: 50 (sebelumnya 90-an)
-      // Pas diklik: 60 (sebelumnya 110)
-      // Total Radius dari tengah = 60 (center) + 60 (max chart) = 120. 
-      // Diameter = 240. Container 300. Sisa space 60px (Aman banget!)
-      final double radius = isTouched ? 60.0 : 50.0; 
-      
-      final double fontSize = isTouched ? 18.0 : 0.0;
-      return PieChartSectionData(color: _colors[index % _colors.length], value: amount.toDouble(), title: "", radius: radius, titleStyle: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold, color: Colors.white));
+
+      return PieChartSectionData(
+        color: _colors[index % _colors.length],
+        value: amount.toDouble(),
+        title: "",
+        radius: isTouched ? 60 : 50,
+      );
     });
   }
 }

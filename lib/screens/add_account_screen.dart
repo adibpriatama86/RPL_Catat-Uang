@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+
 import 'package:prototype_catat_uang/database/database_helper.dart';
+import 'package:prototype_catat_uang/screens/insert_transaction_screen.dart'; // CurrencyInputFormatter
 
 class AddAccountScreen extends StatefulWidget {
-  const AddAccountScreen({super.key});
+  final Map<String, dynamic>? accountToEdit;
+
+  const AddAccountScreen({super.key, this.accountToEdit});
 
   @override
   State<AddAccountScreen> createState() => _AddAccountScreenState();
@@ -10,99 +16,246 @@ class AddAccountScreen extends StatefulWidget {
 
 class _AddAccountScreenState extends State<AddAccountScreen> {
   final _formKey = GlobalKey<FormState>();
+
   final _nameController = TextEditingController();
-  final _balanceController = TextEditingController(); 
-  String _selectedType = 'Cash'; 
+  final _balanceController = TextEditingController();
+  final _typeController = TextEditingController(text: 'Cash');
 
-  final List<String> _types = ['Cash', 'Bank', 'E-Wallet', 'Investment'];
+  bool _isEditMode = false;
+  int _oldBalance = 0;
 
-  Future<void> _saveAccount() async {
-    if (_formKey.currentState!.validate()) {
-      Map<String, dynamic> row = {
-        'name': _nameController.text,
-        'type': _selectedType,
-        'balance': int.parse(_balanceController.text),
-      };
+  @override
+  void initState() {
+    super.initState();
+    if (widget.accountToEdit != null) {
+      _isEditMode = true;
+      _nameController.text = widget.accountToEdit!['name'];
+      _typeController.text = widget.accountToEdit!['type'];
+      _oldBalance = widget.accountToEdit!['balance'];
 
-      await DatabaseHelper().insertAccount(row);
-
-      if (!mounted) return;
-      Navigator.pop(context, true); 
+      _balanceController.text = NumberFormat.currency(
+        locale: 'id',
+        symbol: '',
+        decimalDigits: 0,
+      ).format(_oldBalance);
     }
   }
 
-  // Helper Style biar Rounded & Modern (Sama kayak Insert Transaction)
-  InputDecoration _modernInputDecoration(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      prefixIcon: Icon(icon, color: Colors.grey), 
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)), // INI RAHASIANYA
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(15),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+  // =========================
+  // TYPE PICKER
+  // =========================
+  void _showTypePicker(bool isDark) {
+    final types = ['Cash', 'Bank', 'E-Wallet', 'Investment'];
+    final icons = [
+      Icons.wallet,
+      Icons.account_balance,
+      Icons.phone_android,
+      Icons.trending_up
+    ];
+    final colors = [
+      Colors.green,
+      Colors.blue,
+      Colors.orange,
+      Colors.purple
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor:
+          isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(15),
-        borderSide: const BorderSide(color: Color(0xFFFF6B6B), width: 2),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Pilih Tipe Akun",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 15),
+            Expanded(
+              child: GridView.builder(
+                gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 2.5,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                ),
+                itemCount: types.length,
+                itemBuilder: (_, i) {
+                  return GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _typeController.text = types[i]);
+                      Navigator.pop(context);
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: colors[i].withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors[i]),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(icons[i], color: colors[i]),
+                          const SizedBox(width: 8),
+                          Text(
+                            types[i],
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: colors[i]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
-      filled: true,
-      fillColor: Colors.grey.shade50,
-      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
     );
   }
 
+  // =========================
+  // SAVE ACCOUNT
+  // =========================
+  Future<void> _saveAccount() async {
+    HapticFeedback.mediumImpact();
+    if (!_formKey.currentState!.validate()) return;
+
+    final newBalance =
+        int.parse(_balanceController.text.replaceAll('.', ''));
+
+    final row = {
+      'name': _nameController.text,
+      'type': _typeController.text,
+      'balance': newBalance,
+    };
+
+    if (_isEditMode) {
+      await DatabaseHelper()
+          .updateAccount(widget.accountToEdit!['id'], row);
+
+      final diff = newBalance - _oldBalance;
+      if (diff != 0) {
+        await DatabaseHelper().insertTransaction({
+          'name': 'Koreksi Saldo (${_nameController.text})',
+          'category': 'Lainnya',
+          'amount': diff.abs(),
+          'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+          'type': diff > 0 ? 'Income' : 'Expense',
+          'account_id': widget.accountToEdit!['id'],
+        });
+      }
+    } else {
+      final newId = await DatabaseHelper().insertAccount(row);
+      if (newBalance > 0) {
+        await DatabaseHelper().insertTransaction({
+          'name': 'Saldo Awal ${_nameController.text}',
+          'category': 'Lainnya',
+          'amount': newBalance,
+          'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+          'type': 'Income',
+          'account_id': newId,
+        });
+      }
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context, true);
+  }
+
+  // =========================
+  // INPUT DECORATION
+  // =========================
+  InputDecoration _inputDeco(
+      String label, IconData icon, bool isDark) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon),
+      filled: true,
+      fillColor:
+          isDark ? Colors.grey[850] : Colors.grey.shade50,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(15),
+      ),
+    );
+  }
+
+  // =========================
+  // BUILD
+  // =========================
   @override
   Widget build(BuildContext context) {
+    final isDark =
+        Theme.of(context).brightness == Brightness.dark;
+    final textColor =
+        isDark ? Colors.white : Colors.black87;
+
     return Scaffold(
-      backgroundColor: Colors.white, 
+      backgroundColor:
+          Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text("Tambah Akun", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)), 
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87),
-          onPressed: () => Navigator.pop(context),
+        title: Text(
+          _isEditMode ? "Edit Akun" : "Tambah Akun",
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: textColor,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(20.0), // Padding digedein dikit biar lega
+        padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
           child: Column(
             children: [
-              // 1. Nama Akun
               TextFormField(
                 controller: _nameController,
-                style: const TextStyle(color: Colors.black87), 
-                decoration: _modernInputDecoration("Nama Akun", Icons.label_outline),
-                validator: (val) => val!.isEmpty ? 'Nama harus diisi' : null,
+                decoration:
+                    _inputDeco("Nama Akun", Icons.label_outline, isDark),
+                validator: (v) =>
+                    v!.isEmpty ? 'Nama harus diisi' : null,
               ),
+
               const SizedBox(height: 20),
 
-              // 2. Tipe Akun
-              DropdownButtonFormField<String>(
-                value: _selectedType,
-                dropdownColor: Colors.white, 
-                style: const TextStyle(color: Colors.black87, fontSize: 16),
-                decoration: _modernInputDecoration("Tipe Akun", Icons.category_outlined),
-                items: _types.map((String type) {
-                  return DropdownMenuItem(value: type, child: Text(type));
-                }).toList(),
-                onChanged: (val) => setState(() => _selectedType = val!),
+              TextFormField(
+                controller: _typeController,
+                readOnly: true,
+                decoration: _inputDeco(
+                        "Tipe Akun", Icons.category_outlined, isDark)
+                    .copyWith(
+                        suffixIcon:
+                            const Icon(Icons.arrow_drop_down)),
+                onTap: () => _showTypePicker(isDark),
               ),
+
               const SizedBox(height: 20),
 
-              // 3. Saldo Awal
               TextFormField(
                 controller: _balanceController,
                 keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.black87), 
-                decoration: _modernInputDecoration("Saldo Saat Ini", Icons.monetization_on_outlined),
-                validator: (val) => val!.isEmpty ? 'Saldo harus diisi' : null,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  CurrencyInputFormatter()
+                ],
+                decoration: _inputDeco(
+                    "Saldo Saat Ini", Icons.monetization_on_outlined, isDark),
+                validator: (v) =>
+                    v!.isEmpty ? 'Saldo harus diisi' : null,
               ),
+
               const SizedBox(height: 40),
 
-              // Tombol Simpan
               SizedBox(
                 width: double.infinity,
                 height: 55,
@@ -110,11 +263,15 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                   onPressed: _saveAccount,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFF6B6B),
-                    foregroundColor: Colors.white, 
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)), // Tombol juga rounded 15
-                    elevation: 3,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15)),
                   ),
-                  child: const Text("Simpan Akun", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    _isEditMode ? "Update Akun" : "Simpan Akun",
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ],
